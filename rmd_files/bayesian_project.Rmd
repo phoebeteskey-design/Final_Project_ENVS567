@@ -1,0 +1,41 @@
+---
+title: "bayesian_project"
+output: html_document
+author: Phoebe Teskey
+email: phoebeteskey@arizona.edu
+date: 15/04/2026
+---
+
+```{r}
+library(tidyverse)
+library(brms)
+```
+
+
+```{r}
+veg <- read.csv("../data/soil_transects.csv")
+
+# convert to factors
+veg$SpeciesName <- as.factor(veg$SpeciesName)
+veg$SiteID <- as.factor(veg$SiteID)
+veg$Transect <- as.factor(veg$Transect)
+veg$SoilType <- as.factor(veg$SoilType)
+
+str(veg$nValue)
+veg$nValue <- as.integer(as.numeric(veg$nValue))
+veg <- veg %>%
+  drop_na(nValue, SoilType, ESD_Designation, SiteID, Transect, SpeciesName)
+
+```
+
+```{r}
+model <- brm(
+  nValue ~ SoilType + ESD_Designation + (1|SiteID) + (1|Transect) + (1|SpeciesName),
+  data = veg,
+  family = negbinomial(),
+  chains = 4,
+  cores = 4,
+  iter = 2000
+)
+```
+
