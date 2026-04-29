@@ -38,26 +38,41 @@ veg$nValue <- as.integer(as.numeric(veg$nValue))
 veg <- veg %>%
   na.omit(nValue, SoilType, ESD_Designation, SiteID, Transect, SpeciesName)
 
+veg$nValue_prop <- veg$nValue / 100
+
 ```
 
 ```{r}
-get_prior(formula=nValue~SoilType, data = veg, family = negbinomial())
+get_prior(formula = nValue_prop ~ SoilType + ESD_Designation + (1 | SiteID/Transect), 
+          data = veg, 
+          family = zero_inflated_beta())
 ```
 When a prior is "flat" that means it has no prior information at all. 
 
 ```{r}
-prior.m2 = c(set_prior("normal(0,2)", class = "Intercept"),
-set_prior("normal(0,1)", class = "b"),
-set_prior("exponential(1)", class = "sd"),
-set_prior("exponential(1)", class = "shape"))
+prior.m2_beta = c(
+  set_prior("normal(0, 2)", class = "Intercept"),
+  set_prior("normal(0, 1)", class = "b"),
+  set_prior("exponential(1)", class = "sd"),
+
+  set_prior("exponential(1)", class = "phi"),
+  # Added a prior for the Zero-Inflation probability
+  set_prior("logistic(0, 1)", class = "zi") 
+)
 ```
 
 Weakly informative priors are set. Now let's run the model.
 Setting priors is a bit of an art. It requires knowledge of the system.
 
 ```{r}
-m2.brms=brm(formula = nValue ~ SoilType + ESD_Designation + (1 | SiteID/Transect), data = veg, family = negbinomial(),
-            prior = prior.m2, chains = 4, cores = 4,
+
+
+```
+
+
+```{r}
+m2.brms=brm(formula = nValue_prop ~ SoilType + ESD_Designation + (1 | SiteID/Transect), data = veg, family = zero_inflated_beta(),
+            prior = prior.m2_beta, chains = 4, cores = 4,
             iter = 2000, seed = 123)
 summary(m2.brms)
 ```
@@ -73,9 +88,33 @@ Results:
 Vegetation type was a stronger predictor of plant abundance than soil type. Introduced grass presence is associated with higher plant abundance, while annual forbs are associated with lower plant abundance.
 
 ```{r}
-install.packages("usethis")
-library(usethis)
-use_git()
-use_github()
+#MCMC diagnostics
+plot(m2.brms, pars = "^b_")
+```
+
+Each chain has converged, which is good.
+
+
+```{r}
+pp_check(m2.brms, ndraws = 50)
+```
+All of these waves are not good. Indicates that nvalues are rounded or sampled only at specific intervals.
+
+```{r}
+pp_check(m2.brms, type = "rootogram")
+```
+
+
+```{r}
+install.packages("tidybayes")
+library(tidybayes)
+
+m2.brms %>%
+  gather_draws(b_Intercept, b_SoilTypeSomeLevel, b_ESD_DesignationSomeLevel) %>%
+  ggplot(aes(y = .variable, x = .value)) +
+  stat_halfeye() + # Shows density + credible interval
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "Posterior Distributions of Coefficients", x = "Effect Size (log scale)")
 ```
 
