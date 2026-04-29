@@ -73,6 +73,9 @@ Results:
 Vegetation type was a stronger predictor of plant abundance than soil type. Introduced grass presence is associated with higher plant abundance, while annual forbs are associated with lower plant abundance.
 
 ```{r}
-
+install.packages("usethis")
+library(usethis)
+use_git()
+use_github()
 ```
 
