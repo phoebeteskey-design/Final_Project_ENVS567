@@ -14,17 +14,24 @@ packages.needed<-c("ggplot2","bayesplot","fitdistrplus","reshape2",
 "bayesplot","doBy")
 
 lapply(packages.needed, FUN = require, character.only = T)
+library(tidyverse)
+library(future)
 ```
 
 
 ```{r}
 veg <- read.csv("../data/soil_transects.csv")
 
+veg <- veg %>%
+  group_by(SiteID) %>%
+  sample_n(10) %>%
+  ungroup()
+
 head(veg)
 
 ```
 
-Question: How does soil type affect plant abundance?
+Question: How does soil type affect plant cover?
 
 ```{r}
 # convert to factors
@@ -47,7 +54,7 @@ get_prior(formula = nValue_prop ~ SoilType + ESD_Designation + (1 | SiteID/Trans
           data = veg, 
           family = zero_inflated_beta())
 ```
-When a prior is "flat" that means it has no prior information at all. 
+When a prior is "flat" that means it has no prior information at all. These priors need to be informed for the model to work.
 
 ```{r}
 prior.m2_beta = c(
@@ -61,35 +68,43 @@ prior.m2_beta = c(
 )
 ```
 
+What do the priors mean? Centered at 0, fairly wide spread. This is a log scale, so 0-1 prior would allow 0.1 to 50 plants. Which is not going to occur, hence why it is weakly informative.
+
+The Beta: Tells us how much cover there is if the plant is present.
+
+The ZI: Tells us the probability that the plant is absent.
+
 Weakly informative priors are set. Now let's run the model.
-Setting priors is a bit of an art. It requires knowledge of the system.
+Setting priors is a bit of an art. It requires knowledge of the system and an informed opinion.
+
 
 ```{r}
-
-
+m2.brms=brm(formula = nValue_prop ~ SoilType + ESD_Designation + (1 | SiteID/Transect), data = veg, 
+            family = zero_inflated_beta(),
+            prior = prior.m2_beta, chains = 4, cores = 4,
+            iter = 2000, seed = 123,
+            future = TRUE)
 ```
 
 
 ```{r}
-m2.brms=brm(formula = nValue_prop ~ SoilType + ESD_Designation + (1 | SiteID/Transect), data = veg, family = zero_inflated_beta(),
-            prior = prior.m2_beta, chains = 4, cores = 4,
-            iter = 2000, seed = 123)
 summary(m2.brms)
 ```
 
 Rhat = 1, which means chains converged, which is good.
-Intercept = 2.41, log transformed is 11.1 plants per sample quadrat.
-Soil type credible intervals include 0, which tells you that soil type doesn't really affect plant abundance.
-When looking at the plant types, we can see that there's a strong negative effect when annual forbs are present. So there's less plant abundance where annual forbs are present.
-When introduced grass is present, those areas have a higher plant abundance. 
-shape = 1, indicating that variance is greater than the mean, which means negative binomial is the correct family for this dataset.
+Intercept = -1.88, which means that average plant cover of average species is approximately 13% of the quadrat for the reference soil and vegetation type.
+Soil type credible intervals include 0, which tells you that soil type doesn't really affect plant cover.
 
-Results:
-Vegetation type was a stronger predictor of plant abundance than soil type. Introduced grass presence is associated with higher plant abundance, while annual forbs are associated with lower plant abundance.
+When looking at the plant types, we can see that Introduced and Native grass have a higher proportion of cover than the baseline. IG-34%, NG-21%
+
+Zi parameters indicate that there aren't actually a ton of excess zeroes
+phi parameters describe variance. The estimate of 2.72 indicates high variance
+
+
 
 ```{r}
 #MCMC diagnostics
-plot(m2.brms, pars = "^b_")
+plot(m2.brms)
 ```
 
 Each chain has converged, which is good.
@@ -98,23 +113,30 @@ Each chain has converged, which is good.
 ```{r}
 pp_check(m2.brms, ndraws = 50)
 ```
-All of these waves are not good. Indicates that nvalues are rounded or sampled only at specific intervals.
 
-```{r}
-pp_check(m2.brms, type = "rootogram")
-```
+
+The dark blue line is the actual data, the light blue lines are all of the model simulations. It does generally follow the data. Could probably be better. You can see the data is zero-inflated, which is why we used a model that can handle that.
 
 
 ```{r}
-install.packages("tidybayes")
 library(tidybayes)
+library(modelr)
 
-m2.brms %>%
-  gather_draws(b_Intercept, b_SoilTypeSomeLevel, b_ESD_DesignationSomeLevel) %>%
-  ggplot(aes(y = .variable, x = .value)) +
-  stat_halfeye() + # Shows density + credible interval
+plot_data <- veg %>%
+  data_grid(SoilType, ESD_Designation) %>%
+  # This generates the predicted distributions
+  add_epred_draws(m2.brms, re_formula = NA)
+
+ggplot(plot_data, aes(x = .epred, y = SoilType, fill = ESD_Designation)) +
+  stat_halfeye(alpha = 0.7) +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  theme_minimal() +
-  labs(title = "Posterior Distributions of Coefficients", x = "Effect Size (log scale)")
+  labs(title = "Predicted Percent Cover by Soil and Plant Type",
+       x = "Expected Proportion of Cover (0 to 1)",
+       y = "Soil Type") +
+  theme_minimal()
+
 ```
 
+Interpretation of the graph: There is a 95% probability that the true average percent cover for that plant group falls within that shaded area/bar. Tall and skinny are more accurate, wide represents more uncertainty. 
+
+General conclusions from this graph: We can see that introduced grass is outperforming every other plant type. 
