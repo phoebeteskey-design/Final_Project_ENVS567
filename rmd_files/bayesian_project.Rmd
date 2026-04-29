@@ -7,14 +7,26 @@ date: 15/04/2026
 ---
 
 ```{r}
-library(tidyverse)
-library(brms)
+packages.needed<-c("ggplot2","bayesplot","fitdistrplus","reshape2",
+
+"qqplotr","gridExtra","ggeffects", "GGally","broom","qqplotr","brms",
+
+"bayesplot","doBy")
+
+lapply(packages.needed, FUN = require, character.only = T)
 ```
 
 
 ```{r}
 veg <- read.csv("../data/soil_transects.csv")
 
+head(veg)
+
+```
+
+Question: How does soil type affect plant abundance?
+
+```{r}
 # convert to factors
 veg$SpeciesName <- as.factor(veg$SpeciesName)
 veg$SiteID <- as.factor(veg$SiteID)
@@ -24,18 +36,43 @@ veg$SoilType <- as.factor(veg$SoilType)
 str(veg$nValue)
 veg$nValue <- as.integer(as.numeric(veg$nValue))
 veg <- veg %>%
-  drop_na(nValue, SoilType, ESD_Designation, SiteID, Transect, SpeciesName)
+  na.omit(nValue, SoilType, ESD_Designation, SiteID, Transect, SpeciesName)
 
 ```
 
 ```{r}
-model <- brm(
-  nValue ~ SoilType + ESD_Designation + (1|SiteID) + (1|Transect) + (1|SpeciesName),
-  data = veg,
-  family = negbinomial(),
-  chains = 4,
-  cores = 4,
-  iter = 2000
-)
+get_prior(formula=nValue~SoilType, data = veg, family = negbinomial())
+```
+When a prior is "flat" that means it has no prior information at all. 
+
+```{r}
+prior.m2 = c(set_prior("normal(0,2)", class = "Intercept"),
+set_prior("normal(0,1)", class = "b"),
+set_prior("exponential(1)", class = "sd"),
+set_prior("exponential(1)", class = "shape"))
+```
+
+Weakly informative priors are set. Now let's run the model.
+Setting priors is a bit of an art. It requires knowledge of the system.
+
+```{r}
+m2.brms=brm(formula = nValue ~ SoilType + ESD_Designation + (1 | SiteID/Transect), data = veg, family = negbinomial(),
+            prior = prior.m2, chains = 4, cores = 4,
+            iter = 2000, seed = 123)
+summary(m2.brms)
+```
+
+Rhat = 1, which means chains converged, which is good.
+Intercept = 2.41, log transformed is 11.1 plants per sample quadrat.
+Soil type credible intervals include 0, which tells you that soil type doesn't really affect plant abundance.
+When looking at the plant types, we can see that there's a strong negative effect when annual forbs are present. So there's less plant abundance where annual forbs are present.
+When introduced grass is present, those areas have a higher plant abundance. 
+shape = 1, indicating that variance is greater than the mean, which means negative binomial is the correct family for this dataset.
+
+Results:
+Vegetation type was a stronger predictor of plant abundance than soil type. Introduced grass presence is associated with higher plant abundance, while annual forbs are associated with lower plant abundance.
+
+```{r}
+
 ```
 
